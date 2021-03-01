@@ -1,3 +1,24 @@
+/**
+ * @file crc15.c
+ * @author Sergey Kalinichenko (sergey.kalinichenko@yaelev.se)
+ * @brief C Assignment 1
+ *        Make a program to calculate and verify the CRC checksum of a message according to the below requirements. 
+ *        Download the crc15.c file and develop the program in the file.
+ * Requirements
+ *  1. The message is an ​N​ element array of ​unsigned char​ (uint8_t)
+ *  2. The minimum length of the message is ​1​ character.
+ *  3. The maximum length of the message is ​14 ​characters.
+ *  4. The CRC-15 polynomial is ​0xC599 ​(1100010110011001)
+ *  5. The message is processed from the ​first ​element to the ​last ​element in the array
+ *  6. Every byte is processed from the ​LSB ​to the ​MSB
+ *  7. No magic number!
+ * 
+ * @version 0.2
+ * @date 2021-02-28
+ * 
+ * @copyright Copyright (c) 2021
+ * 
+ */
 #include <stdio.h>
 #include <stdint.h>
 //#include <string.h>
@@ -10,8 +31,8 @@
 
 #define BYTES_TO_BITS(x) ((x) << 3)
 #define IS_MSB_OF_16_BIT_VALUE_EQ_1(x) ((x) >= 0x8000U)
-#define GET_MSB_OF_BYTE(x) ((x)&0x80U)
 #define GET_LSB_OF_BYTE(x) ((x)&0x01U)
+//#define GET_MSB_OF_BYTE(x) ((x)&0x80U)
 
 #define RESET 1
 #define NO_RESET 0
@@ -69,11 +90,10 @@ uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
             mask = rev ? mask << 1 : mask >> 1;
     }
 
-    /*                                */ printf("  bit_out>  %d  ", bit_out);
-
     return bit_out;
 }
-/*uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
+/* ALT:
+uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
 {
     static uint8_t *p_byte;
     static uint8_t i_counter;
@@ -127,7 +147,7 @@ uint16_t crc_15(uint8_t *arr, uint8_t n_arr, uint8_t rev)
         if (i >= n_bits_in_buf && IS_MSB_OF_16_BIT_VALUE_EQ_1(buf_2B))
             buf_2B = buf_2B ^ divisor;
 
-        /*                                */ printf("%2d> buf_xor, (buf_xor<<1)|next_bit>    %4x > ", i, buf_2B), prn16bin(buf_2B);
+        /*                                */ printf("%2d> buf+xor, buf+xor+shift+next_bit>    %4x > ", i, buf_2B), prn16bin(buf_2B);
 
         buf_2B = (buf_2B << 1) | (uint16_t)next_bit(arr, NO_RESET, rev);
 
@@ -158,9 +178,6 @@ int checksum_15(uint16_t crc15, uint8_t *arr, uint8_t n_arr, uint8_t rev)
 
     buf.x16 = crc15 << 1;
 
-    /*                                */ printf("16>   %x\n", buf.x16);
-    /*                                */ printf("2x8>  %x %x\n", buf.x8[0], buf.x8[1]);
-
     if (rev)
         for (uint8_t i = 0; i < n_bytes_in_crc; ++i)
             for (uint8_t j = 0; j < N_BITS_IN_BYTE; ++j)
@@ -174,23 +191,11 @@ int checksum_15(uint16_t crc15, uint8_t *arr, uint8_t n_arr, uint8_t rev)
         arr[n_arr + 1] = buf.x8[0];
     }
 
-    /*                                */ printf("arr>  %x  %x\n", arr[n_arr], arr[n_arr + 1]);
-
     return 0;
 }
 
 /**
- * @brief C Assignment 1
- *        Make a program to calculate and verify the CRC checksum of a message according to the below requirements. 
- *        Download the crc15.c file and develop the program in the file.
- * Requirements
- *  1. The message is an ​N​ element array of ​unsigned char​ (uint8_t)
- *  2. The minimum length of the message is ​1​ character.
- *  3. The maximum length of the message is ​14 ​characters.
- *  4. The CRC-15 polynomial is ​0xC599 ​(1100010110011001)
- *  5. The message is processed from the ​first ​element to the ​last ​element in the array
- *  6. Every byte is processed from the ​LSB ​to the ​MSB
- *  7. No magic number!
+ * @brief Calculating checksum and checking data integrity.
  * 
  * @return int (0)
  */
@@ -201,25 +206,44 @@ int main(void)
 
     // Calculate the CRC and Checksum the message
 
-    /*                                */ printf("test 0x248F>  "), prn16bin(0x248FU), printf("\n");
-    /*                                */ printf("test 0xC599>  "), prn16bin(0xC599U), printf("\n"), printf("\n");
-
     uint16_t crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER);
-
-    /*                                */ printf("crc>  %x - ", crc15), prn16bin(crc15), printf("\n");
+    printf("message>  %2s %4s\n", message, message);
 
     (void)checksum_15(crc15, message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER);
 
-    /*                                */ printf("msg>  %x  %x\n\n", message[2], message[3]);
+    /*                                */ printf("crc >  %x - ", crc15), prn16bin(crc15), printf("\n");
+    /*                                */ printf("crc<<1 >  %x - ", crc15 << 1), prn16bin(crc15 << 1), printf("\n");
+    /*                                */ printf("msg >  %x  %x - ", message[2], message[3]), prn16bin(message[2]), printf(" "), prn16bin(message[3]), printf("\n\n");
 
-    printf("crc check>  %d", crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER));
+    printf("crc check>  %d\n\n", crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER));
+    printf("message>  %2s %4s\n", message, message);
 
-    //
     message[1] = 'a';
 
     // Validate the message.
     // If the remainder is zero print "The data is OK\n";
     // otherwise print "The data is not OK\n"
+
+    if (crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER))
+        printf("CRC: %x. The data is not OK\n", crc15);
+    else
+        printf("CRC: %x. The data is OK\n", crc15);
+
+    ///////////////////////////////////
+    message[0] = 'A';
+    message[1] = 'B';
+    message[2] = 0;
+    message[3] = 0;
+    crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REGULAR_BIT_ORDER);
+    (void)checksum_15(crc15, message, sizeof(message) - sizeof(crc15), REGULAR_BIT_ORDER);
+
+    /*                                */ printf("crc >  %x - ", crc15), prn16bin(crc15), printf("\n");
+    /*                                */ printf("crc<<1 >  %x - ", crc15 << 1), prn16bin(crc15 << 1), printf("\n");
+    /*                                */ printf("msg >  %x  %x - ", message[2], message[3]), prn16bin(message[2]), printf(" "), prn16bin(message[3]), printf("\n\n");
+
+    printf("crc check>  %d\n\n", crc_15(message, sizeof(message) - sizeof(crc15), REGULAR_BIT_ORDER));
+
+    //
 
     return 0;
 }
