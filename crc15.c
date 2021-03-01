@@ -13,7 +13,7 @@
  *  6. Every byte is processed from the ​LSB ​to the ​MSB
  *  7. No magic number!
  * 
- * @version 0.2
+ * @version 0.3
  * @date 2021-02-28
  * 
  * @copyright Copyright (c) 2021
@@ -26,8 +26,9 @@
 #define POLYNOMIAL 0xC599U // The CAN protocol uses the CRC-15 with this polynomial
 
 #define N_BITS_IN_BYTE 8
-#define MASK_W_ONLY_MSB_EQ_1 0x80U
-#define MASK_W_ONLY_LSB_EQ_1 0x01U
+#define MASK16_W_ONLY_MSB_EQ_1 0x8000U
+#define MASK8_W_ONLY_MSB_EQ_1 0x80U
+#define MASK8_W_ONLY_LSB_EQ_1 0x01U
 
 #define BYTES_TO_BITS(x) ((x) << 3)
 #define IS_MSB_OF_16_BIT_VALUE_EQ_1(x) ((x) >= 0x8000U)
@@ -49,10 +50,13 @@ uint16_t prn16bin(uint16_t num)
 {
     const uint8_t n_bits_in_x = BYTES_TO_BITS(sizeof(num));
     const uint8_t n_bits_in_group = 4;
-    const uint16_t one = (uint16_t)0x1U;
+    uint16_t mask = MASK16_W_ONLY_MSB_EQ_1;
 
     for (int8_t i = n_bits_in_x - 1; i >= 0; --i)
-        printf("%d%s", (num & (one << i)) ? 1 : 0, (i > 0 && i % n_bits_in_group == 0) ? "-" : "");
+    {
+        printf("%d%s", num & mask ? 1 : 0, (i > 0 && i % n_bits_in_group == 0) ? "_" : "");
+        mask >>= 1;
+    }
 
     return num;
 }
@@ -76,14 +80,14 @@ uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
     if (reset)
     {
         p_byte = arr;
-        mask = rev ? MASK_W_ONLY_LSB_EQ_1 : MASK_W_ONLY_MSB_EQ_1;
+        mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
     }
     bit_out = (*p_byte & mask) ? 0x01U : 0x00U;
     if (!reset)
     {
-        if (rev ? mask == MASK_W_ONLY_MSB_EQ_1 : mask == MASK_W_ONLY_LSB_EQ_1)
+        if (rev ? mask == MASK8_W_ONLY_MSB_EQ_1 : mask == MASK8_W_ONLY_LSB_EQ_1)
         {
-            mask = rev ? MASK_W_ONLY_LSB_EQ_1 : MASK_W_ONLY_MSB_EQ_1;
+            mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
             ++p_byte;
         }
         else
@@ -147,11 +151,7 @@ uint16_t crc_15(uint8_t *arr, uint8_t n_arr, uint8_t rev)
         if (i >= n_bits_in_buf && IS_MSB_OF_16_BIT_VALUE_EQ_1(buf_2B))
             buf_2B = buf_2B ^ divisor;
 
-        /*                                */ printf("%2d> buf+xor, buf+xor+shift+next_bit>    %4x > ", i, buf_2B), prn16bin(buf_2B);
-
         buf_2B = (buf_2B << 1) | (uint16_t)next_bit(arr, NO_RESET, rev);
-
-        /*                                */ printf(" - %4x > ", buf_2B), prn16bin(buf_2B), printf("\n");
     }
 
     return buf_2B >> 1;
@@ -201,49 +201,34 @@ int checksum_15(uint16_t crc15, uint8_t *arr, uint8_t n_arr, uint8_t rev)
  */
 int main(void)
 {
-    //uint8_t message[] = {'H', 'e', 'l', 'l', 'o', ' ', 'W', 'o', 'r', 'l', 'd', '!', 0, 0}; // 15 zeros have been appended to the message
-    uint8_t message[] = {'A', 'B', 0, 0}; // 15 zeros have been appended to the message
+    uint8_t message[] = {'H', 'e', 'l', 'l', 'o', ' ', 'W', 'o', 'r', 'l', 'd', '!', 0, 0}; // 15 zeros have been appended to the message
+    //uint8_t message[] = {'A', 'B', 0, 0}; // 15 zeros have been appended to the message
 
     // Calculate the CRC and Checksum the message
 
-    uint16_t crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER);
-    printf("message>  %2s %4s\n", message, message);
+    uint16_t crc15;
 
+    crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER);
     (void)checksum_15(crc15, message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER);
 
-    /*                                */ printf("crc >  %x - ", crc15), prn16bin(crc15), printf("\n");
-    /*                                */ printf("crc<<1 >  %x - ", crc15 << 1), prn16bin(crc15 << 1), printf("\n");
-    /*                                */ printf("msg >  %x  %x - ", message[2], message[3]), prn16bin(message[2]), printf(" "), prn16bin(message[3]), printf("\n\n");
+    printf("CRC-15 as 15-bit remainder (MSB == 0) before adding to the message:  0x%x / 0b", crc15), (void)prn16bin(crc15), printf("\n\n");
 
-    printf("crc check>  %d\n\n", crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER));
-    printf("message>  %2s %4s\n", message, message);
+    printf("Checking message \"%.*s\":\n", sizeof(message) - sizeof(crc15), message);
+    if ((crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER)))
+        printf("CRC = %#x. The data is not OK\n", crc15);
+    else
+        printf("CRC = %#x. The data is OK\n", crc15);
 
     message[1] = 'a';
-
     // Validate the message.
     // If the remainder is zero print "The data is OK\n";
     // otherwise print "The data is not OK\n"
 
-    if (crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER))
-        printf("CRC: %x. The data is not OK\n", crc15);
+    printf("\nThe message is changed. Checking message \"%.*s\":\n", sizeof(message) - sizeof(crc15), message);
+    if ((crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER)))
+        printf("CRC = %#x. The data is not OK\n", crc15);
     else
-        printf("CRC: %x. The data is OK\n", crc15);
-
-    ///////////////////////////////////
-    message[0] = 'A';
-    message[1] = 'B';
-    message[2] = 0;
-    message[3] = 0;
-    crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REGULAR_BIT_ORDER);
-    (void)checksum_15(crc15, message, sizeof(message) - sizeof(crc15), REGULAR_BIT_ORDER);
-
-    /*                                */ printf("crc >  %x - ", crc15), prn16bin(crc15), printf("\n");
-    /*                                */ printf("crc<<1 >  %x - ", crc15 << 1), prn16bin(crc15 << 1), printf("\n");
-    /*                                */ printf("msg >  %x  %x - ", message[2], message[3]), prn16bin(message[2]), printf(" "), prn16bin(message[3]), printf("\n\n");
-
-    printf("crc check>  %d\n\n", crc_15(message, sizeof(message) - sizeof(crc15), REGULAR_BIT_ORDER));
-
-    //
+        printf("CRC = %#x. The data is OK\n", crc15);
 
     return 0;
 }
