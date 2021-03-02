@@ -13,7 +13,7 @@
  *  6. Every byte is processed from the ​LSB ​to the ​MSB
  *  7. No magic number!
  * 
- * @version 0.6
+ * @version 0.7
  * @date 2021-02-28
  * 
  * @copyright Copyright (c) 2021
@@ -21,7 +21,6 @@
  */
 #include <stdio.h>
 #include <stdint.h>
-//#include <string.h>
 
 #define POLYNOMIAL 0xC599U // The CAN protocol uses the CRC-15 with this polynomial
 
@@ -32,11 +31,9 @@
 
 #define BYTES_TO_BITS(x) ((x) << 3)
 #define IS_MSB_OF_16_BIT_VALUE_EQ_1(x) ((x) >= 0x8000U)
-#define GET_LSB_OF_BYTE(x) ((x)&0x01U)
-//#define GET_MSB_OF_BYTE(x) ((x)&0x80U)
+#define GET_BIT_OF_BYTE(x, mask) ((x) & (mask) ? 0x01U : 0x00U)
+#define GET_LSB_OF_BYTE(x) GET_BIT_OF_BYTE(x, 0x01U)
 
-#define RESET 1
-#define NO_RESET 0
 #define REVERSE_BIT_ORDER 1
 #define REGULAR_BIT_ORDER 0
 #define EXTRA_BIT_ADDED 1
@@ -91,7 +88,7 @@ static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const u
  * @param n_arr - max. data length (in bytes), so there should be extra 2 pos. in the array for "\n\0" / CRC
  * @return uint8_t (actual data length)
  */
-static inline uint8_t input_alt_message(const uint8_t *arr, const uint8_t n_arr);
+static inline uint8_t input_alt_message(uint8_t *arr, const uint8_t n_arr);
 
 /**
  * @brief Calculating CRC and checking data integrity.
@@ -125,7 +122,7 @@ int main(void)
     (void)printf("CRC-15:  0x%x / 0b", crc15), (void)prn16bin(crc15), (void)printf("\n\n");
     (void)checksum_15(crc15, data_ptr, len_of_data, REVERSE_BIT_ORDER, EXTRA_BIT_ADDED);
 
-    (void)check_crc(data_ptr, len_of_data, REVERSE_BIT_ORDER, EXTRA_BIT_ADDED);
+    (void)check_crc(data_ptr, len_of_data, REVERSE_BIT_ORDER, EXTRA_BIT_ADDED); // checksumming the data
 
     // Messing up the message:
     data_ptr[1] = 'a'; //     message[1] = 'a';
@@ -138,66 +135,73 @@ int main(void)
 
     return 0;
 }
-
+//
+//
+//
+//
 uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
 {
     const uint16_t divisor = POLYNOMIAL;
 
     uint16_t buf_2B;
     uint16_t crc;
-    uint8_t *p_byte = arr;
+    uint8_t k = 0;
     uint8_t mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
 
     const uint8_t n_bits_in_buf = BYTES_TO_BITS(sizeof(buf_2B));
-    const uint8_t n_steps = BYTES_TO_BITS(n_arr + sizeof(crc));
+    const uint8_t n_steps = BYTES_TO_BITS(n_arr + sizeof(crc)) + xtra_bit; // 1 extra step if 1 extra bit is added to the data
 
-    for (uint8_t i = 0; i < n_steps + xtra_bit; ++i)
+    for (uint8_t i = 0; i < n_steps; ++i)
     {
-        if (i >= n_bits_in_buf && IS_MSB_OF_16_BIT_VALUE_EQ_1(buf_2B))
+        if (i >= n_bits_in_buf && IS_MSB_OF_16_BIT_VALUE_EQ_1(buf_2B)) // no XOR while filling the buffer or in case of zero MSB of the buffer
             buf_2B = buf_2B ^ divisor;
 
-        buf_2B = (buf_2B << 1) | ((*p_byte & mask) ? 0x0001U : 0x0000U);
+        buf_2B = (buf_2B << 1) | (uint16_t)GET_BIT_OF_BYTE(arr[k], mask); // adding next bit to the buffer
 
-        if (rev ? mask == MASK8_W_ONLY_MSB_EQ_1 : mask == MASK8_W_ONLY_LSB_EQ_1)
-        {
-            mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
-            ++p_byte;
-        }
-        else
+        if (rev ? mask == MASK8_W_ONLY_MSB_EQ_1 : mask == MASK8_W_ONLY_LSB_EQ_1) // '1' in the mask is being shifted cyclically
+        {                                                                        //  from MSB to LSB or vice versa
+            mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;          //  depending on bit order
+            ++k;                                                                 //  to provide the next bit to the buffer;
+        }                                                                        //  switching to the next data byte happens
+        else                                                                     //  at the end of this mask cycle
             mask = rev ? mask << 1 : mask >> 1;
     }
 
-    return buf_2B >> 1;
+    return buf_2B >> 1; // because of 1 extra shift in the loop the resulting CRC has zero LSB
+                        //  while 15-bit CRC should have zero MSB as a 16-bit value
 }
-
-int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
+//
+//
+//
+//
+int checksum_15(uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
 {
     const uint8_t n_bytes_in_crc = sizeof(crc15);
+    uint8_t *ptr_byte = (uint8_t *)&crc15; // this pointer provides access to each of two bytes of crc15
+                                           //  but points at these bytes in the reverse order
+                                           //  which is considered by using i and 1-i in the loop below
 
-    union
-    {
-        uint16_t x16;
-        uint8_t x8[sizeof(uint16_t) / sizeof(uint8_t)];
-    } buf;
+    crc15 <<= !xtra_bit; // should be shifted in case there is 1 unused bit in 2-byte checksum
+                         //  because the checksum should follow the data without any gaps between them
 
-    buf.x16 = xtra_bit ? crc15 : crc15 << 1;
-
-    if (rev)
-        for (uint8_t i = 0; i < n_bytes_in_crc; ++i)
+    for (uint8_t i = 0; i < n_bytes_in_crc; ++i)
+        if (rev)
             for (uint8_t j = 0; j < N_BITS_IN_BYTE; ++j)
             {
-                arr[n_arr + i] = (arr[n_arr + i] << 1) | GET_LSB_OF_BYTE(buf.x8[1 - i]);
-                buf.x8[1 - i] >>= 1;
+                arr[n_arr + i] = (arr[n_arr + i] << 1) | GET_LSB_OF_BYTE(*(ptr_byte + 1 - i)); // reverse bit order is provided
+                *(ptr_byte + 1 - i) >>= 1;                                                     //  by shifting source and destination bytes
+                                                                                               //  in different directions
+                                                                                               //  during copying the bits
             }
-    else
-    {
-        arr[n_arr] = buf.x8[1];
-        arr[n_arr + 1] = buf.x8[0];
-    }
-
+        else
+            arr[n_arr + i] = *(ptr_byte + 1 - i); // just assinging the bytes considering their reverse order
+                                                  //  in case of regular bit order
     return 0;
 }
-
+//
+//
+//
+//
 static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
 {
     uint16_t crc15;
@@ -217,8 +221,11 @@ static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const u
 
     return crc_ok;
 }
-
-static inline uint8_t input_alt_message(const uint8_t *arr, const uint8_t n_arr)
+//
+//
+//
+//
+static inline uint8_t input_alt_message(uint8_t *arr, const uint8_t n_arr)
 {
     uint8_t *ptr = arr;
 
@@ -231,7 +238,10 @@ static inline uint8_t input_alt_message(const uint8_t *arr, const uint8_t n_arr)
 
     return (uint8_t)(ptr - arr);
 }
-
+//
+//
+//
+//
 uint16_t prn16bin(const uint16_t num)
 {
     const uint8_t n_bits_in_x = BYTES_TO_BITS(sizeof(num));
