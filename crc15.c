@@ -13,7 +13,7 @@
  *  6. Every byte is processed from the ​LSB ​to the ​MSB
  *  7. No magic number!
  * 
- * @version 0.7
+ * @version 1.0
  * @date 2021-02-28
  * 
  * @copyright Copyright (c) 2021
@@ -85,13 +85,20 @@ static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const u
  * @brief Input of an alternative data to calculate CRC.
  * 
  * @param arr - array for data input
- * @param n_arr - max. data length (in bytes), so there should be extra 2 pos. in the array for "\n\0" / CRC
+ * @param n_arr - max. data length (in bytes), so there should be extra 2 pos. (besides data bytes) in the array for "\n\0" / CRC
  * @return uint8_t (actual data length)
  */
 static inline uint8_t input_alt_message(uint8_t *arr, const uint8_t n_arr);
 
 /**
  * @brief Calculating CRC and checking data integrity.
+ * 
+ * NOTE: here the CRC checksum is calculated and tested with the following options:
+ *       1) reversed bit order - ON,
+ *       2) extra zero bit added to data - ON.
+ *       These options may be switched off via function call arguments:
+ *         REVERSE_BIT_ORDER / REGULAR_BIT_ORDER
+ *         EXTRA_BIT_ADDED / EXTRA_BIT_NOT_ADDED.
  * 
  * @return int (0)
  */
@@ -104,12 +111,12 @@ int main(void)
     uint16_t crc15;
     uint8_t input_message[sizeof(message)]; // alt. message may be input instead of the default one;
                                             //  max. num. of data bytes in the array is defined according to
-                                            //  the default array message[]
+                                            //  the default data in message[]
 
     uint8_t len_of_input;
-    uint8_t len_of_data = sizeof(message) - sizeof(crc15); // actual num. of data bytes in the array;
-                                                           //  default array is message[]
-    uint8_t *data_ptr = message;                           // default data to check CRC is message[]
+    uint8_t len_of_data = sizeof(message) - sizeof(crc15); // actual num. of data bytes in the array, default data is message[]
+
+    uint8_t *data_ptr = message; // default data to check CRC is message[]
 
     (void)printf("\nDefault message: \"%.*s\"\n", len_of_data, message);
     if ((len_of_input = input_alt_message(input_message, sizeof(message) - sizeof(crc15))) > 0) // alt. data may be input
@@ -162,7 +169,7 @@ uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, cons
         {                                                                        //  from MSB to LSB or vice versa
             mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;          //  depending on bit order
             ++k;                                                                 //  to provide the next bit to the buffer;
-        }                                                                        //  switching to the next data byte happens
+        }                                                                        //  switching to the next data byte occurs
         else                                                                     //  at the end of this mask cycle
             mask = rev ? mask << 1 : mask >> 1;
     }
