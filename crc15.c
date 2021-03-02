@@ -13,7 +13,7 @@
  *  6. Every byte is processed from the ​LSB ​to the ​MSB
  *  7. No magic number!
  * 
- * @version 0.3
+ * @version 0.4
  * @date 2021-02-28
  * 
  * @copyright Copyright (c) 2021
@@ -46,7 +46,7 @@
  * @param num - a 16-bit number
  * @return uint16_t (the input value)
  */
-uint16_t prn16bin(uint16_t num)
+uint16_t prn16bin(const uint16_t num)
 {
     const uint8_t n_bits_in_x = BYTES_TO_BITS(sizeof(num));
     const uint8_t n_bits_in_group = 4;
@@ -64,14 +64,14 @@ uint16_t prn16bin(uint16_t num)
 /**
  * @brief Providing next bit from the array of bytes.
  *        Bytes are processed sequentially. 
- *        Bits in every byte may be processed in regular or reversed order.
+ *        Bits in every byte may be processed in regular or reverse order.
  * 
  * @param arr - array of bytes
  * @param reset - resetting to the beginning of the array
- * @param rev - if 1 then bits in every byte are processed in reversed order.
+ * @param rev - if 1 then bits in every byte are processed in reverse order.
  * @return uint8_t (0 or 1)
  */
-uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
+uint8_t next_bit(const uint8_t *arr, const uint8_t reset, const uint8_t rev)
 {
     static uint8_t *p_byte;
     static uint8_t mask;
@@ -82,9 +82,31 @@ uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
         p_byte = arr;
         mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
     }
-    bit_out = (*p_byte & mask) ? 0x01U : 0x00U;
+    bit_out = (*p_byte & mask) ? 1 : 0;
     if (!reset)
     {
+        if (rev)
+        {
+            if (mask == MASK8_W_ONLY_MSB_EQ_1)
+            {
+                mask = MASK8_W_ONLY_LSB_EQ_1;
+                ++p_byte;
+            }
+            else
+                mask = mask << 1;
+        }
+        else
+        {
+            if (mask == MASK8_W_ONLY_LSB_EQ_1)
+            {
+                mask = MASK8_W_ONLY_MSB_EQ_1;
+                ++p_byte;
+            }
+            else
+                mask = mask >> 1;
+        }
+
+        /* ALT:
         if (rev ? mask == MASK8_W_ONLY_MSB_EQ_1 : mask == MASK8_W_ONLY_LSB_EQ_1)
         {
             mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
@@ -92,6 +114,7 @@ uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
         }
         else
             mask = rev ? mask << 1 : mask >> 1;
+        */
     }
 
     return bit_out;
@@ -134,7 +157,7 @@ uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
  * @param rev - if 1, bits in the array bytes are processed in the reverse order (from LSB to MSB)
  * @return uint16_t (15-bit CRC value as a 16-bit value with MSB == 0)
  */
-uint16_t crc_15(uint8_t *arr, uint8_t n_arr, uint8_t rev)
+uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev)
 {
     const uint16_t divisor = POLYNOMIAL;
 
@@ -163,10 +186,10 @@ uint16_t crc_15(uint8_t *arr, uint8_t n_arr, uint8_t rev)
  * @param crc15 - 15-bit checksum (16-bit value with MSB == 0)
  * @param arr - the array the checksum is added to
  * @param n_arr - array size before checksum is added
- * @param rev - if 1, bits in both checksum bytes are added in the reversed order
+ * @param rev - if 1, bits in both checksum bytes are added in the reverse order
  * @return int (0)
  */
-int checksum_15(uint16_t crc15, uint8_t *arr, uint8_t n_arr, uint8_t rev)
+int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const uint8_t rev)
 {
     const uint8_t n_bytes_in_crc = sizeof(crc15);
 
@@ -195,40 +218,100 @@ int checksum_15(uint16_t crc15, uint8_t *arr, uint8_t n_arr, uint8_t rev)
 }
 
 /**
- * @brief Calculating checksum and checking data integrity.
+ * @brief Checking the integrity of a checksummed data array and reporting the result to stdin. 
+ * 
+ * @param arr - checksummed array
+ * @param n_arr - array size without checksum
+ * @param rev - if 1, bits in the array bytes are processed in the reverse order
+ * @return uint8_t (1 if CRC is OK, 0 otherwise)
+ */
+static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev);
+
+/**
+ * @brief Input of an alternative data to calculate CRC.
+ * 
+ * @param arr - array for data input
+ * @param n_arr - max. data length (in bytes), so there should be extra 2 pos. in the array for "\n\0" / CRC
+ * @return uint8_t (actual data length)
+ */
+static inline uint8_t input_alt_message(const uint8_t *arr, const uint8_t n_arr);
+
+/**
+ * @brief Calculating CRC and checking data integrity.
  * 
  * @return int (0)
  */
 int main(void)
 {
     uint8_t message[] = {'H', 'e', 'l', 'l', 'o', ' ', 'W', 'o', 'r', 'l', 'd', '!', 0, 0}; // 15 zeros have been appended to the message
-    //uint8_t message[] = {'A', 'B', 0, 0}; // 15 zeros have been appended to the message
 
     // Calculate the CRC and Checksum the message
 
     uint16_t crc15;
+    uint8_t input_message[sizeof(message)]; // alt. message may be input instead of the default one;
+                                            //  max. num. of data bytes in the array is defined according to
+                                            //  the default array message[]
 
-    crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER);
-    (void)checksum_15(crc15, message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER);
+    uint8_t len_of_input;
+    uint8_t len_of_data = sizeof(message) - sizeof(crc15); // actual num. of data bytes in the array;
+                                                           //  default array is message[]
+    uint8_t *data_ptr = message;
 
-    printf("CRC-15 as 15-bit remainder (MSB == 0) before adding to the message:  0x%x / 0b", crc15), (void)prn16bin(crc15), printf("\n\n");
+    (void)printf("\nDefault message: \"%.*s\"\n", len_of_data, message);
+    if ((len_of_input = input_alt_message(input_message, sizeof(message) - sizeof(crc15))) > 0)
+    {
+        len_of_data = len_of_input;
+        data_ptr = input_message;
+    }
 
-    printf("Checking message \"%.*s\":\n", sizeof(message) - sizeof(crc15), message);
-    if ((crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER)))
-        printf("CRC = %#x. The data is not OK\n", crc15);
-    else
-        printf("CRC = %#x. The data is OK\n", crc15);
+    crc15 = crc_15(data_ptr, len_of_data, REVERSE_BIT_ORDER);
+    (void)printf("CRC-15:  0x%x / 0b", crc15), (void)prn16bin(crc15), (void)printf("\n\n");
+    (void)checksum_15(crc15, data_ptr, len_of_data, REVERSE_BIT_ORDER);
 
-    message[1] = 'a';
+    (void)check_crc(data_ptr, len_of_data, REVERSE_BIT_ORDER);
+
+    // Messing up the message:
+    data_ptr[1] = 'a'; //     message[1] = 'a';
+    (void)printf("\nThe message has been changed. ");
     // Validate the message.
     // If the remainder is zero print "The data is OK\n";
     // otherwise print "The data is not OK\n"
 
-    printf("\nThe message is changed. Checking message \"%.*s\":\n", sizeof(message) - sizeof(crc15), message);
-    if ((crc15 = crc_15(message, sizeof(message) - sizeof(crc15), REVERSE_BIT_ORDER)))
-        printf("CRC = %#x. The data is not OK\n", crc15);
-    else
-        printf("CRC = %#x. The data is OK\n", crc15);
+    (void)check_crc(data_ptr, len_of_data, REVERSE_BIT_ORDER);
 
     return 0;
+}
+
+static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev)
+{
+    uint16_t crc15;
+    uint8_t crc_ok;
+
+    (void)printf("Checking message \"%.*s\" + CRC:\n", n_arr, arr);
+    if ((crc15 = crc_15(arr, n_arr, REVERSE_BIT_ORDER)))
+    {
+        (void)printf("CRC = %#x. The data is not OK\n", crc15);
+        crc_ok = 0;
+    }
+    else
+    {
+        (void)printf("CRC = %#x. The data is OK\n", crc15);
+        crc_ok = 1;
+    }
+
+    return crc_ok;
+}
+
+static inline uint8_t input_alt_message(const uint8_t *arr, const uint8_t n_arr)
+{
+    uint8_t *ptr = arr;
+
+    (void)printf("Input a new message(max. % d characters will be accepted) or just press ENTER > ", n_arr);
+    (void)fgets((char *)arr, n_arr + 2, stdin); // "\n\0" are input in any case and need 2 extra pos. in the array
+                                                //  besides the actual data (these pos. are used also for the checksum)
+    while (*(ptr++) != '\n')
+        ;
+    *(--ptr) = '\0'; // changing '\n' to '\0', the next char. is also '\0' because of string input
+
+    return (uint8_t)(ptr - arr);
 }
