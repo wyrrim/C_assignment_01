@@ -13,7 +13,7 @@
  *  6. Every byte is processed from the ​LSB ​to the ​MSB
  *  7. No magic number!
  * 
- * @version 0.4
+ * @version 0.5
  * @date 2021-02-28
  * 
  * @copyright Copyright (c) 2021
@@ -39,6 +39,8 @@
 #define NO_RESET 0
 #define REVERSE_BIT_ORDER 1
 #define REGULAR_BIT_ORDER 0
+#define EXTRA_BIT_ADDED 1
+#define EXTRA_BIT_NOT_ADDED 0
 
 /**
  * @brief Printing a 16-bit number to stdout in binary form.
@@ -155,9 +157,10 @@ uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
  * @param arr - array of bytes the CRC is calculated for; 2 extra zero bytes at the end should be already present !!
  * @param n_arr - the array size WITHOUT 2 extra zero bytes
  * @param rev - if 1, bits in the array bytes are processed in the reverse order (from LSB to MSB)
+ * @param xtra_bit - if 1, one extra zero bit is added to data before calc. of CRC-15
  * @return uint16_t (15-bit CRC value as a 16-bit value with MSB == 0)
  */
-uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev)
+uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
 {
     const uint16_t divisor = POLYNOMIAL;
 
@@ -169,7 +172,7 @@ uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev)
 
     (void)next_bit(arr, RESET, rev);
 
-    for (uint8_t i = 0; i < n_steps; ++i)
+    for (uint8_t i = 0; i < n_steps + xtra_bit; ++i)
     {
         if (i >= n_bits_in_buf && IS_MSB_OF_16_BIT_VALUE_EQ_1(buf_2B))
             buf_2B = buf_2B ^ divisor;
@@ -187,9 +190,10 @@ uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev)
  * @param arr - the array the checksum is added to
  * @param n_arr - array size before checksum is added
  * @param rev - if 1, bits in both checksum bytes are added in the reverse order
+ * @param xtra_bit - if 1, one extra zero bit is added to data before calc. of CRC-15
  * @return int (0)
  */
-int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const uint8_t rev)
+int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
 {
     const uint8_t n_bytes_in_crc = sizeof(crc15);
 
@@ -199,7 +203,7 @@ int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const u
         uint8_t x8[sizeof(uint16_t) / sizeof(uint8_t)];
     } buf;
 
-    buf.x16 = crc15 << 1;
+    buf.x16 = xtra_bit ? crc15 : crc15 << 1;
 
     if (rev)
         for (uint8_t i = 0; i < n_bytes_in_crc; ++i)
@@ -223,9 +227,10 @@ int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const u
  * @param arr - checksummed array
  * @param n_arr - array size without checksum
  * @param rev - if 1, bits in the array bytes are processed in the reverse order
+ * @param xtra_bit - if 1, one extra zero bit is added to data before calc. of CRC-15
  * @return uint8_t (1 if CRC is OK, 0 otherwise)
  */
-static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev);
+static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit);
 
 /**
  * @brief Input of an alternative data to calculate CRC.
@@ -255,20 +260,20 @@ int main(void)
     uint8_t len_of_input;
     uint8_t len_of_data = sizeof(message) - sizeof(crc15); // actual num. of data bytes in the array;
                                                            //  default array is message[]
-    uint8_t *data_ptr = message;
+    uint8_t *data_ptr = message;                           // default data to check CRC is message[]
 
     (void)printf("\nDefault message: \"%.*s\"\n", len_of_data, message);
-    if ((len_of_input = input_alt_message(input_message, sizeof(message) - sizeof(crc15))) > 0)
+    if ((len_of_input = input_alt_message(input_message, sizeof(message) - sizeof(crc15))) > 0) // alt. data may be input
     {
         len_of_data = len_of_input;
         data_ptr = input_message;
     }
 
-    crc15 = crc_15(data_ptr, len_of_data, REVERSE_BIT_ORDER);
+    crc15 = crc_15(data_ptr, len_of_data, REVERSE_BIT_ORDER, EXTRA_BIT_ADDED);
     (void)printf("CRC-15:  0x%x / 0b", crc15), (void)prn16bin(crc15), (void)printf("\n\n");
-    (void)checksum_15(crc15, data_ptr, len_of_data, REVERSE_BIT_ORDER);
+    (void)checksum_15(crc15, data_ptr, len_of_data, REVERSE_BIT_ORDER, EXTRA_BIT_ADDED);
 
-    (void)check_crc(data_ptr, len_of_data, REVERSE_BIT_ORDER);
+    (void)check_crc(data_ptr, len_of_data, REVERSE_BIT_ORDER, EXTRA_BIT_ADDED);
 
     // Messing up the message:
     data_ptr[1] = 'a'; //     message[1] = 'a';
@@ -277,25 +282,25 @@ int main(void)
     // If the remainder is zero print "The data is OK\n";
     // otherwise print "The data is not OK\n"
 
-    (void)check_crc(data_ptr, len_of_data, REVERSE_BIT_ORDER);
+    (void)check_crc(data_ptr, len_of_data, REVERSE_BIT_ORDER, EXTRA_BIT_ADDED);
 
     return 0;
 }
 
-static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev)
+static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
 {
     uint16_t crc15;
     uint8_t crc_ok;
 
     (void)printf("Checking message \"%.*s\" + CRC:\n", n_arr, arr);
-    if ((crc15 = crc_15(arr, n_arr, REVERSE_BIT_ORDER)))
+    if ((crc15 = crc_15(arr, n_arr, rev, xtra_bit)))
     {
-        (void)printf("CRC = %#x. The data is not OK\n", crc15);
+        (void)printf("Checksum = %#x. The data is not OK\n", crc15);
         crc_ok = 0;
     }
     else
     {
-        (void)printf("CRC = %#x. The data is OK\n", crc15);
+        (void)printf("Checksum = %#x. The data is OK\n", crc15);
         crc_ok = 1;
     }
 
