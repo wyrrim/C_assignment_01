@@ -13,7 +13,7 @@
  *  6. Every byte is processed from the ​LSB ​to the ​MSB
  *  7. No magic number!
  * 
- * @version 0.5
+ * @version 0.6
  * @date 2021-02-28
  * 
  * @copyright Copyright (c) 2021
@@ -48,108 +48,7 @@
  * @param num - a 16-bit number
  * @return uint16_t (the input value)
  */
-uint16_t prn16bin(const uint16_t num)
-{
-    const uint8_t n_bits_in_x = BYTES_TO_BITS(sizeof(num));
-    const uint8_t n_bits_in_group = 4;
-    uint16_t mask = MASK16_W_ONLY_MSB_EQ_1;
-
-    for (int8_t i = n_bits_in_x - 1; i >= 0; --i)
-    {
-        printf("%d%s", num & mask ? 1 : 0, (i > 0 && i % n_bits_in_group == 0) ? "_" : "");
-        mask >>= 1;
-    }
-
-    return num;
-}
-
-/**
- * @brief Providing next bit from the array of bytes.
- *        Bytes are processed sequentially. 
- *        Bits in every byte may be processed in regular or reverse order.
- * 
- * @param arr - array of bytes
- * @param reset - resetting to the beginning of the array
- * @param rev - if 1 then bits in every byte are processed in reverse order.
- * @return uint8_t (0 or 1)
- */
-uint8_t next_bit(const uint8_t *arr, const uint8_t reset, const uint8_t rev)
-{
-    static uint8_t *p_byte;
-    static uint8_t mask;
-    static uint8_t bit_out;
-
-    if (reset)
-    {
-        p_byte = arr;
-        mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
-    }
-    bit_out = (*p_byte & mask) ? 1 : 0;
-    if (!reset)
-    {
-        if (rev)
-        {
-            if (mask == MASK8_W_ONLY_MSB_EQ_1)
-            {
-                mask = MASK8_W_ONLY_LSB_EQ_1;
-                ++p_byte;
-            }
-            else
-                mask = mask << 1;
-        }
-        else
-        {
-            if (mask == MASK8_W_ONLY_LSB_EQ_1)
-            {
-                mask = MASK8_W_ONLY_MSB_EQ_1;
-                ++p_byte;
-            }
-            else
-                mask = mask >> 1;
-        }
-
-        /* ALT:
-        if (rev ? mask == MASK8_W_ONLY_MSB_EQ_1 : mask == MASK8_W_ONLY_LSB_EQ_1)
-        {
-            mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
-            ++p_byte;
-        }
-        else
-            mask = rev ? mask << 1 : mask >> 1;
-        */
-    }
-
-    return bit_out;
-}
-/* ALT:
-uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
-{
-    static uint8_t *p_byte;
-    static uint8_t i_counter;
-    static uint8_t buf_1B;
-    static uint8_t bit_out;
-
-    if (reset)
-    {
-        buf_1B = *arr;
-        i_counter = 0;
-        p_byte = arr;
-        bit_out = rev ? GET_LSB_OF_BYTE(buf_1B) : GET_MSB_OF_BYTE(buf_1B);
-    }
-    else
-    {
-        bit_out = rev ? GET_LSB_OF_BYTE(buf_1B) : GET_MSB_OF_BYTE(buf_1B);
-        if (++i_counter == N_BITS_IN_BYTE)
-        {
-            i_counter = 0;
-            buf_1B = *(++p_byte);
-        }
-        else
-            buf_1B = rev ? buf_1B >> 1 : buf_1B << 1;
-    }
-
-    return bit_out;
-}*/
+uint16_t prn16bin(const uint16_t num);
 
 /**
  * @brief Calculating CRC-15.
@@ -160,28 +59,7 @@ uint8_t next_bit(uint8_t *arr, uint8_t reset, uint8_t rev)
  * @param xtra_bit - if 1, one extra zero bit is added to data before calc. of CRC-15
  * @return uint16_t (15-bit CRC value as a 16-bit value with MSB == 0)
  */
-uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
-{
-    const uint16_t divisor = POLYNOMIAL;
-
-    uint16_t buf_2B;
-    uint16_t crc;
-
-    const uint8_t n_bits_in_buf = BYTES_TO_BITS(sizeof(buf_2B));
-    const uint8_t n_steps = BYTES_TO_BITS(n_arr + sizeof(crc));
-
-    (void)next_bit(arr, RESET, rev);
-
-    for (uint8_t i = 0; i < n_steps + xtra_bit; ++i)
-    {
-        if (i >= n_bits_in_buf && IS_MSB_OF_16_BIT_VALUE_EQ_1(buf_2B))
-            buf_2B = buf_2B ^ divisor;
-
-        buf_2B = (buf_2B << 1) | (uint16_t)next_bit(arr, NO_RESET, rev);
-    }
-
-    return buf_2B >> 1;
-}
+uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit);
 
 /**
  * @brief Adding checksum to array of bytes.
@@ -190,36 +68,10 @@ uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, cons
  * @param arr - the array the checksum is added to
  * @param n_arr - array size before checksum is added
  * @param rev - if 1, bits in both checksum bytes are added in the reverse order
- * @param xtra_bit - if 1, one extra zero bit is added to data before calc. of CRC-15
+ * @param xtra_bit - if 1, considering an extra zero bit added to data before calc. of CRC-15
  * @return int (0)
  */
-int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
-{
-    const uint8_t n_bytes_in_crc = sizeof(crc15);
-
-    union
-    {
-        uint16_t x16;
-        uint8_t x8[sizeof(uint16_t) / sizeof(uint8_t)];
-    } buf;
-
-    buf.x16 = xtra_bit ? crc15 : crc15 << 1;
-
-    if (rev)
-        for (uint8_t i = 0; i < n_bytes_in_crc; ++i)
-            for (uint8_t j = 0; j < N_BITS_IN_BYTE; ++j)
-            {
-                arr[n_arr + i] = (arr[n_arr + i] << 1) | GET_LSB_OF_BYTE(buf.x8[1 - i]);
-                buf.x8[1 - i] >>= 1;
-            }
-    else
-    {
-        arr[n_arr] = buf.x8[1];
-        arr[n_arr + 1] = buf.x8[0];
-    }
-
-    return 0;
-}
+int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit);
 
 /**
  * @brief Checking the integrity of a checksummed data array and reporting the result to stdin. 
@@ -287,6 +139,65 @@ int main(void)
     return 0;
 }
 
+uint16_t crc_15(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
+{
+    const uint16_t divisor = POLYNOMIAL;
+
+    uint16_t buf_2B;
+    uint16_t crc;
+    uint8_t *p_byte = arr;
+    uint8_t mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
+
+    const uint8_t n_bits_in_buf = BYTES_TO_BITS(sizeof(buf_2B));
+    const uint8_t n_steps = BYTES_TO_BITS(n_arr + sizeof(crc));
+
+    for (uint8_t i = 0; i < n_steps + xtra_bit; ++i)
+    {
+        if (i >= n_bits_in_buf && IS_MSB_OF_16_BIT_VALUE_EQ_1(buf_2B))
+            buf_2B = buf_2B ^ divisor;
+
+        buf_2B = (buf_2B << 1) | ((*p_byte & mask) ? 0x0001U : 0x0000U);
+
+        if (rev ? mask == MASK8_W_ONLY_MSB_EQ_1 : mask == MASK8_W_ONLY_LSB_EQ_1)
+        {
+            mask = rev ? MASK8_W_ONLY_LSB_EQ_1 : MASK8_W_ONLY_MSB_EQ_1;
+            ++p_byte;
+        }
+        else
+            mask = rev ? mask << 1 : mask >> 1;
+    }
+
+    return buf_2B >> 1;
+}
+
+int checksum_15(const uint16_t crc15, uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
+{
+    const uint8_t n_bytes_in_crc = sizeof(crc15);
+
+    union
+    {
+        uint16_t x16;
+        uint8_t x8[sizeof(uint16_t) / sizeof(uint8_t)];
+    } buf;
+
+    buf.x16 = xtra_bit ? crc15 : crc15 << 1;
+
+    if (rev)
+        for (uint8_t i = 0; i < n_bytes_in_crc; ++i)
+            for (uint8_t j = 0; j < N_BITS_IN_BYTE; ++j)
+            {
+                arr[n_arr + i] = (arr[n_arr + i] << 1) | GET_LSB_OF_BYTE(buf.x8[1 - i]);
+                buf.x8[1 - i] >>= 1;
+            }
+    else
+    {
+        arr[n_arr] = buf.x8[1];
+        arr[n_arr + 1] = buf.x8[0];
+    }
+
+    return 0;
+}
+
 static inline uint8_t check_crc(const uint8_t *arr, const uint8_t n_arr, const uint8_t rev, const uint8_t xtra_bit)
 {
     uint16_t crc15;
@@ -319,4 +230,19 @@ static inline uint8_t input_alt_message(const uint8_t *arr, const uint8_t n_arr)
     *(--ptr) = '\0'; // changing '\n' to '\0', the next char. is also '\0' because of string input
 
     return (uint8_t)(ptr - arr);
+}
+
+uint16_t prn16bin(const uint16_t num)
+{
+    const uint8_t n_bits_in_x = BYTES_TO_BITS(sizeof(num));
+    const uint8_t n_bits_in_group = 4;
+    uint16_t mask = MASK16_W_ONLY_MSB_EQ_1;
+
+    for (int8_t i = n_bits_in_x - 1; i >= 0; --i)
+    {
+        printf("%d%s", num & mask ? 1 : 0, (i > 0 && i % n_bits_in_group == 0) ? "_" : "");
+        mask >>= 1;
+    }
+
+    return num;
 }
